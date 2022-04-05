@@ -1,0 +1,502 @@
+---
+title: "Stage 1"
+output: 
+  html_document:
+    code_folding: hide
+    toc: TRUE
+    toc_float: TRUE
+    theme:
+      bootswatch: lumen
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Problem Definition
+
+
+### Dataset Description
+
+
+### Data Cleaning
+Since the original dataset is consisted of too many features (2741), the first thing to clean the dataset is to select the relevant features. Our features for the classification model are selected in two main aspects：
+
+Firstly, demographical characteristics will be considered as influencing factors for substance abuse, such as:
+- age, educational level, race, employment status, income level, arrest records.
+These features are selected because they can profile the characteristic, living environment and social class of a respondent, which may reflect whether a responder can access drugs easily and is possible to be persuaded to use drugs.
+
+Secondly, uses of the following drugs that causes potential addiction is also considered as essential features:
+- using recency of tobacco, alcohol, marijuana, and pain killer
+Each drug in this category is characterized from two aspects. One is whether the respondents ever tried the drug, and the other is the dependence of the user on the drug. Among them, the dependence is mainly represented by the frequency of drug use within a period before the survey and the interval between the time of the last use of drug to the answering of questionnaire. Generally, the shorter the interval is, the higher the frequency of use and the higher the dependence should be.
+
+```{r load data, echo=TRUE}
+load('NSDUH_2019.RData')
+PUF <- PUF2019_100920
+```
+```{r feature selection, echo=TRUE}
+
+PUF.col <- colnames(PUF)
+#PUF.col.lower <- tolower(PUF.col)
+
+feature.names <-  c("cigever","cigrec","CIG30USE","CIG30AV","alcever","alcrec",
+                    "ALCUS30D","alcdays","ALCBNG30D","mjever","mjrec","mrdaypyr",
+                    "pnrnmlif","pnrnmrec","PNRNM30FQ","booked","AGE2","irsex",
+                    "NEWRACE2","eduhighcat","irwrkstat","ANYHLTI2","income","MJDAY30A") 
+feature <- PUF[, feature.names]
+#feature.col.bool <- PUF.col.lower %in% feature.col
+#feature <- PUF[, feature.col.bool]
+
+relevant.label.names <- c("cocever","cocrec","herever","herrec","lsd","peyote",
+                          "ecstmolly","lsdrec","irecstmorec","methamflag","methamyr",
+                          "oxcopdapyu","fentpdapyu","hydmpdapyu","mtdnpdapyu",
+                          "amphetapyu","methpdapyu" )
+label.relevant <- PUF[, relevant.label.names]
+#label.col.bool <- PUF.col.lower %in% label.col
+#label.relevant <- PUF[, label.col.bool]
+label <- apply(label.relevant, 1, function(x) {
+  (x[1]==1 & x[2]<9) | (x[3]==1  & x[4]<9) | (x[5]==1  & x[6]<9) | 
+  (x[7]==1  & x[8]==1) | (x[9]==1  & x[10]<3) | x[11]==1 | x[12]==1 | 
+  x[13]==1 | x[14]==1 | x[15]==1 | x[16]==1 | x[17]==1
+})
+
+```
+
+After selecting the relevant features, the dataset is cleaned following the principles:
+
+- Responders who never use drugs and not use drugs within the period of interest are regarded as who do not use drugs.
+- All logically assigned data is treated as a null value because it is not accurate enough.
+- The statistical data of dependence degree with the Skip option cannot be used as a feature, because the number of samples of this type is too small and the data has obvious bias.
+
+```{r normalize value, echo=TRUE}
+# cigever means 'EVER SMOKED A CIGARETTE'
+# 1 = Yes
+# 0 = No
+feature[['cigever']][which(feature[['cigever']] == 2)] <- 0
+levels(factor(feature[['cigever']]))
+
+# cigrec means 'TIME SINCE LAST SMOKED CIGARETTES'
+levels(factor(feature[['cigrec']]))
+# From 1-4, the time interval gradually increases
+# 5 = NEVER USED CIGARETTES
+# All logically assigned are considered invalid
+feature[['cigrec']][which(feature[['cigrec']] == 8)] <- NA
+feature[['cigrec']][which(feature[['cigrec']] == 9)] <- NA
+feature[['cigrec']][which(feature[['cigrec']] == 11)] <- NA
+feature[['cigrec']][which(feature[['cigrec']] == 14)] <- NA
+feature[['cigrec']][which(feature[['cigrec']] == 19)] <- NA
+feature[['cigrec']][which(feature[['cigrec']] == 29)] <- NA
+feature[['cigrec']][which(feature[['cigrec']] == 91)] <- 5
+levels(factor(feature[['cigrec']]))
+
+# here we show 'cigever' and 'cigrec' as examples, 
+# the processings are similar for the rest, which are not shown.
+
+```
+
+```{r include=FALSE}
+# CIG30AV means  AVG # CIGS SMOKED PER DAY/ON DAY SMOKED IN LAST 30 DAYS
+# From 1-7, the smoked per day increases
+# 0 = NEVER USED CIGARETTES
+# 93 =  DID NOT USE CIGARETTES IN THE PAST 30 DAYS, so replace 93 as 0
+# from 0-7, the higher value is, the more cigarettes smoked
+levels(factor(feature[['CIG30AV']]))
+feature[['CIG30AV']][which(feature[['CIG30AV']] == 94)] <- NA
+feature[['CIG30AV']][which(feature[['CIG30AV']] == 97)] <- NA
+feature[['CIG30AV']][which(feature[['CIG30AV']] == 98)] <- NA
+feature[['CIG30AV']][which(feature[['CIG30AV']] == 91)] <- 0
+feature[['CIG30AV']][which(feature[['CIG30AV']] == 93)] <- 0
+levels(factor(feature[['CIG30AV']]))
+
+
+# CIG30USE 
+# from 1-30, the day smoking
+# 0 = NEVER USED CIGARETTES
+# 93 =  DID NOT USE CIGARETTES IN THE PAST 30 DAYS, so replace 93 as 0
+# from 0-30, the higher value is, the more frequent responsors smoked
+levels(factor(feature[['CIG30USE']]))
+feature[['CIG30USE']][which(feature[['CIG30USE']] == 94)] <- NA
+feature[['CIG30USE']][which(feature[['CIG30USE']] == 97)] <- NA
+feature[['CIG30USE']][which(feature[['CIG30USE']] == 98)] <- NA
+feature[['CIG30USE']][which(feature[['CIG30USE']] == 91)] <- 0
+feature[['CIG30USE']][which(feature[['CIG30USE']] == 93)] <- 0
+levels(factor(feature[['CIG30USE']]))
+
+
+# alcever means EVER HAD DRINK OF ALCOHOLIC BEVERAGE
+# 1 = Yes
+# 0 = No
+levels(factor(feature[['alcever']]))
+feature[['alcever']][which(feature[['alcever']] == 2)] <- 0
+feature[['alcever']][which(feature[['alcever']] == 85)] <- NA
+feature[['alcever']][which(feature[['alcever']] == 94)] <- NA
+feature[['alcever']][which(feature[['alcever']] == 97)] <- NA
+levels(factor(feature[['alcever']]))
+
+
+# alcrec means TIME SINCE LAST DRANK ALCOHOLIC BEVERAGE
+# From 1-3, time interval gradually increases
+# 4 = NEVER USED ALCOHOL
+# All logically assigned is considered invalid
+levels(factor(feature[['alcrec']]))
+feature[['alcrec']][which(feature[['alcrec']] == 91)] <- 4
+feature[['alcrec']][which(feature[['alcrec']] == 8)] <- NA
+feature[['alcrec']][which(feature[['alcrec']] == 9)] <- NA
+feature[['alcrec']][which(feature[['alcrec']] == 11)] <- NA
+feature[['alcrec']][which(feature[['alcrec']] == 85)] <- NA
+feature[['alcrec']][which(feature[['alcrec']] == 97)] <- NA
+feature[['alcrec']][which(feature[['alcrec']] == 98)] <- NA
+levels(factor(feature[['alcrec']]))
+
+
+# ALCUS30D means USUAL # OF DRINKS PER DAY PAST 30 DAYS
+# From 1-85, drinks per day gradually increases
+# 0 = NEVER USED ALCOHOL
+# 993 =  DID NOT USE ALCOHOL IN THE PAST 30 DAYS, so replace 993 as 0
+# All logically assigned is considered invalid
+levels(factor(feature[['ALCUS30D']]))
+feature[['ALCUS30D']][which(feature[['ALCUS30D']] == 993)] <- 0
+feature[['ALCUS30D']][which(feature[['ALCUS30D']] == 991)] <- 0
+feature[['ALCUS30D']][which(feature[['ALCUS30D']] == 975)] <- NA
+feature[['ALCUS30D']][which(feature[['ALCUS30D']] == 985)] <- NA
+feature[['ALCUS30D']][which(feature[['ALCUS30D']] == 994)] <- NA
+feature[['ALCUS30D']][which(feature[['ALCUS30D']] == 997)] <- NA
+feature[['ALCUS30D']][which(feature[['ALCUS30D']] == 998)] <- NA
+levels(factor(feature[['ALCUS30D']]))
+
+# alcdays 
+# the higher value is, the more days alcohol used
+levels(factor(feature[['alcdays']]))
+feature[['alcdays']][which(feature[['alcdays']] == 91)] <- 0
+feature[['alcdays']][which(feature[['alcdays']] == 93)] <- 0
+feature[['alcdays']][which(feature[['alcdays']] == 85)] <- NA
+feature[['alcdays']][which(feature[['alcdays']] == 94)] <- NA
+feature[['alcdays']][which(feature[['alcdays']] == 97)] <- NA
+feature[['alcdays']][which(feature[['alcdays']] == 98)] <- NA
+levels(factor(feature[['alcdays']]))
+
+
+# ALCBNG30D means DAYS HAD FOUR/FIVE OR MORE DRINKS PAST 30 DYS
+# From 0-30, days gradually increases
+# 0 = NEVER USED ALCOHOL
+# 93 =  DID NOT USE ALCOHOL IN THE PAST 30 DAYS, so replace 93 as 0
+# All logically assigned is considered invalid
+levels(factor(feature[['ALCBNG30D']]))
+feature[['ALCBNG30D']][which(feature[['ALCBNG30D']] == 93)] <- 0
+feature[['ALCBNG30D']][which(feature[['ALCBNG30D']] == 91)] <- 0
+feature[['ALCBNG30D']][which(feature[['ALCBNG30D']] == 80)] <- NA
+feature[['ALCBNG30D']][which(feature[['ALCBNG30D']] == 85)] <- NA
+feature[['ALCBNG30D']][which(feature[['ALCBNG30D']] == 94)] <- NA
+feature[['ALCBNG30D']][which(feature[['ALCBNG30D']] == 97)] <- NA
+feature[['ALCBNG30D']][which(feature[['ALCBNG30D']] == 98)] <- NA
+levels(factor(feature[['ALCBNG30D']]))
+
+
+# mjever means EVER USED MARIJUANA/HASHISH
+# 1 = Yes
+# 0 = No
+levels(factor(feature[['mjever']]))
+feature[['mjever']][which(feature[['mjever']] == 2)] <- 0
+feature[['mjever']][which(feature[['mjever']] == 94)] <- NA
+feature[['mjever']][which(feature[['mjever']] == 97)] <- NA
+levels(factor(feature[['mjever']]))
+
+
+# mjrec means TIME SINCE LAST USED MARIJUANA/HASHISH
+# From 1-3, time interval gradually increases
+# 4 = NEVER USED ALCOHOL
+# All logically assigned is considered invalid
+levels(factor(feature[['mjrec']]))
+feature[['mjrec']][which(feature[['mjrec']] == 91)] <- 4
+feature[['mjrec']][which(feature[['mjrec']] == 8)] <- NA
+feature[['mjrec']][which(feature[['mjrec']] == 9)] <- NA
+feature[['mjrec']][which(feature[['mjrec']] == 11)] <- NA
+feature[['mjrec']][which(feature[['mjrec']] == 97)] <- NA
+feature[['mjrec']][which(feature[['mjrec']] == 98)] <- NA
+levels(factor(feature[['mjrec']]))
+
+
+# mrdaypyr means  DAYS USED MARIJUANA/HASHISH PAST 12 MONTHS
+# From 1-366, days gradually increases
+# 0 = NEVER USED MARIJUANA
+# 993 =  DID NOT USE MARIJUANA IN THE PAST 30 DAYS, so replace 993 as 0
+# All logically assigned is considered invalid
+levels(factor(feature[['mrdaypyr']]))
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 991)] <- 0
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 993)] <- 0
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 985)] <- NA
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 989)] <- NA
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 994)] <- NA
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 997)] <- NA
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 998)] <- NA
+feature[['mrdaypyr']][which(feature[['mrdaypyr']] == 999)] <- NA
+levels(factor(feature[['mrdaypyr']]))
+
+
+# pnrnmlif means EVER USED PAIN RELIEVER NOT DIRECTED BY DR
+# 1 = Yes
+# 2 = No
+# 5 = Yes LOGICALLY ASSIGNED (from skip pattern), so replace 5 as 1
+levels(factor(feature[['pnrnmlif']]))
+feature[['pnrnmlif']][which(feature[['pnrnmlif']] == 2)] <- 0
+feature[['pnrnmlif']][which(feature[['pnrnmlif']] == 91)] <- 0
+feature[['pnrnmlif']][which(feature[['pnrnmlif']] == 5)] <- 1
+feature[['pnrnmlif']][which(feature[['pnrnmlif']] == 85)] <- NA
+feature[['pnrnmlif']][which(feature[['pnrnmlif']] == 94)] <- NA
+feature[['pnrnmlif']][which(feature[['pnrnmlif']] == 97)] <- NA
+feature[['pnrnmlif']][which(feature[['pnrnmlif']] == 98)] <- NA
+levels(factor(feature[['pnrnmlif']]))
+
+
+# pnrnmrec means RC - MOST RECENT PAIN RELIEVER MISUSE (RECODE)
+# From 1-3, time interval gradually increases
+# 4 = NEVER USED pain reliever
+# All logically assigned is considered invalid
+levels(factor(feature[['pnrnmrec']]))
+feature[['pnrnmrec']][which(feature[['pnrnmrec']] == 91)] <- 4
+feature[['pnrnmrec']][which(feature[['pnrnmrec']] == 8)] <- NA
+feature[['pnrnmrec']][which(feature[['pnrnmrec']] == 9)] <- NA
+feature[['pnrnmrec']][which(feature[['pnrnmrec']] == 83)] <- NA
+feature[['pnrnmrec']][which(feature[['pnrnmrec']] == 98)] <- NA
+#levels(factor(feature[['pnrnmrec']]))
+
+
+# PNRNM30FQ
+#levels(factor(feature[['PNRNM30FQ']]))
+feature[['PNRNM30FQ']][which(feature[['PNRNM30FQ']] == 83)] <- 0
+feature[['PNRNM30FQ']][which(feature[['PNRNM30FQ']] == 91)] <- 0
+feature[['PNRNM30FQ']][which(feature[['PNRNM30FQ']] == 93)] <- 0
+feature[['PNRNM30FQ']][which(feature[['PNRNM30FQ']] == 85)] <- NA
+feature[['PNRNM30FQ']][which(feature[['PNRNM30FQ']] == 94)] <- NA
+feature[['PNRNM30FQ']][which(feature[['PNRNM30FQ']] == 97)] <- NA
+feature[['PNRNM30FQ']][which(feature[['PNRNM30FQ']] == 98)] <- NA
+#levels(factor(feature[['PNRNM30FQ']]))
+
+
+# booked means EVER ARRESTED AND BOOKED FOR BREAKING THE LAW
+# 1 = Yes
+# 0 = No
+# 3 = Yes LOGICALLY ASSIGNED (from skip pattern), so replace 3 as 1
+#levels(factor(feature[['booked']]))
+feature[['booked']][which(feature[['booked']] == 2)] <- 0
+feature[['booked']][which(feature[['booked']] == 3)] <- 1
+feature[['booked']][which(feature[['booked']] == 85)] <- NA
+feature[['booked']][which(feature[['booked']] == 94)] <- NA
+feature[['booked']][which(feature[['booked']] == 97)] <- NA
+feature[['booked']][which(feature[['booked']] == 98)] <- NA
+#levels(factor(feature[['booked']]))
+
+# AGE2 means RECODE - FINAL EDITED AGE
+# From 1-17, ages gradually increases
+#levels(factor(feature[['AGE2']]))
+
+
+# irsex means IMPUTATION REVISED GENDER
+# 1 = Male
+# 2 = Female
+#levels(factor(feature[['irsex']]))
+
+
+# NEWRACE2 means RC-RACE/HISPANICITY RECODE (7 LEVELS)
+#levels(factor(feature[['NEWRACE2']]))
+
+
+# eduhighcat means RC-EDUCATION CATEGORIES
+#levels(factor(feature[['eduhighcat']]))
+
+
+# irwrkstat means EMPLOYMENT STATUS - IMPUTATION REVISED
+# 99 = 12-14 year olds, so replace 99 as 0
+#levels(factor(feature[['irwrkstat']]))
+feature[['irwrkstat']][which(feature[['irwrkstat']] == 99)] <- 0
+#levels(factor(feature[['irwrkstat']]))
+
+
+# ANYHLTI2 means COVERED BY ANY HEALTH INSURANCE - RECODE
+# 1 = Yes
+# 0 = No
+#levels(factor(feature[['ANYHLTI2']]))
+feature[['ANYHLTI2']][which(feature[['ANYHLTI2']] == 94)] <- NA
+feature[['ANYHLTI2']][which(feature[['ANYHLTI2']] == 97)] <- NA
+feature[['ANYHLTI2']][which(feature[['ANYHLTI2']] == 98)] <- NA
+feature[['ANYHLTI2']][which(feature[['ANYHLTI2']] == 2)] <- 0
+#levels(factor(feature[['ANYHLTI2']]))
+
+
+# income means RC-TOTAL FAMILY INCOME RECODE
+#levels(factor(feature[['income']]))
+
+
+# MJDAY30A
+#levels(factor(feature[['MJDAY30A']]))
+feature[['MJDAY30A']][which(feature[['MJDAY30A']] == 85)] <- NA
+feature[['MJDAY30A']][which(feature[['MJDAY30A']] == 94)] <- NA
+feature[['MJDAY30A']][which(feature[['MJDAY30A']] == 97)] <- NA
+feature[['MJDAY30A']][which(feature[['MJDAY30A']] == 98)] <- NA
+feature[['MJDAY30A']][which(feature[['MJDAY30A']] == 91)] <- 0
+feature[['MJDAY30A']][which(feature[['MJDAY30A']] == 93)] <- 0
+#levels(factor(feature[['MJDAY30A']]))
+```
+```{r include=FALSE}
+df <- cbind(feature, label)
+df.complete <- na.omit(df)
+
+write.csv(df.complete, "cleaned_data.csv")
+```
+
+```{r load cleaned data}
+df.complete <- read.csv('cleaned_data.csv')
+df.complete <- df.complete[-1]
+table(df.complete[, 'label'])
+```
+
+
+
+### Classification
+```{r}
+library(caret)
+library(smotefamily)
+
+# True 1; False 0
+labels <- as.factor(ifelse(df.complete$label, 1, 0))
+df.complete <- df.complete[-25]
+df.complete$label <- labels
+
+train.ind <- createDataPartition(df.complete$label, p = 0.75)
+
+train.set <- df.complete[train.ind[[1]], ]
+test.set <- df.complete[-train.ind[[1]], ]
+
+train_y <- train.set[["label"]]
+train_x <- train.set[,-25]
+
+#Apply SMOTE, we can twist the K value here. 
+balanced.data <- SMOTE(train_x, train_y, K=5)
+
+#what get returned is a list, we have to extract the data from it
+train.smote <- balanced.data$data 
+train.smote$label <- as.factor(train.smote$class)
+#Returned class will apply a new column called class, we can discard this.
+train.smote<- train.smote[,-25]
+
+table(train.smote[,'label'])
+```
+
+```{r loading and training model for decision tree}
+library(tree)
+set.seed(5003)
+# tree.ctl <- tree.control()
+tree.model <- tree(label ~., data = train.set)
+
+plot(tree.model)
+text(tree.model)
+tree.test <- predict(tree.model, newdata = test.set)
+tree.test.result <- ifelse(tree.test[,"1"] > .5, 1, 0)
+
+cfm <- confusionMatrix(as.factor(tree.test.result), 
+                       as.factor(test.set$label),
+                       positive = "1")
+cfm
+```
+```{r decision tree with SMOTE}
+library(tree)
+set.seed(5003)
+# tree.ctl <- tree.control()
+tree.model <- tree(label ~., data = train.smote)
+
+plot(tree.model)
+text(tree.model)
+tree.test <- predict(tree.model, newdata = test.set)
+tree.test.result <- ifelse(tree.test[,"1"] > .5, 1, 0)
+
+cfm <- confusionMatrix(as.factor(tree.test.result), 
+                       as.factor(test.set$label),
+                       positive = "1")
+cfm
+```
+
+
+```{r random forest}
+library(ranger)
+set.seed(5003)
+rf.recall.test <- c()
+ntree.seq <- c(seq(1, 1000, by=50))
+ntree.seq <- 3000
+for (i in ntree.seq) {
+  rf.model <- ranger(label ~., data = train.smote, num.trees = i)
+  rf.test <- predict(rf.model, data = test.set)
+  rf.test.result <- rf.test$predictions
+  cfm <- confusionMatrix(rf.test.result, 
+                       test.set$label,
+                       positive = "1")
+  rf.recall.test <- c(rf.recall.test, cfm$byClass[1])
+}
+plot(ntree.seq, rf.recall.test, type = "b", xlab = "number of tree", ylab = "recall")
+cfm
+```
+
+```{r boosting}
+library(gbm)
+# 
+# gbm.model <- gbm(label~., data = train.smote, distribution = 'gaussian', n.trees = 5)
+# gbm.test <- predict(gbm.model, newdata = test.set)
+# gbm.test.result <- ifelse(gbm.test[,2] > .5, TRUE, FALSE)
+# cfm <- confusionMatrix(as.factor(gbm.test.result), 
+#                      as.factor(test.set$label),
+#                      positive = "TRUE")
+
+train.smote.boost <- train.smote[,-25]
+train.smote.boost$label <- as.numeric(as.character(train.smote[,25]))
+
+gbm.recall.test <- c()
+# ntree.seq <- c(seq(50, 500, by=50), seq(1000, 3000, by=250))
+ntree.seq <- 100
+for(i in ntree.seq){
+  gbm.model <- gbm(label~., data = train.smote, 
+                   distribution = 'gaussian', n.trees = i)
+  gbm.test <- predict(gbm.model, newdata = test.set, 
+                      type = 'response')
+  gbm.test.result <- ifelse(gbm.test > 1.5, 1, 0)
+  cfm <- confusionMatrix(as.factor(gbm.test.result), 
+                       test.set$label,
+                       positive = "1")
+  gbm.recall.test <- c(gbm.recall.test, cfm$byClass[1])
+}
+plot(ntree.seq, gbm.recall.test, type = "b", xlab = "number of tree", ylab = "recall")
+summary(gbm.test.result)
+cfm
+```
+
+```{r xgboost}
+library(xgboost)
+
+# not completed!!!
+xgb.recall.test <- matrix(0, nrow = 4, ncol = 3)
+nrounds <- c(300, 500, 1000, 1500)
+eta <- c(0.01, 0.02, 0.03)
+
+# plot(eta, RSS.xgb)
+for(i in 1:4){
+  for(j in 1:3){
+    xgb.model <- xgboost(data = as.matrix(train.set[,-ncol(train.set)]),
+                        label = as.numeric(as.character(train.set[,ncol(train.set)])),
+                        max_depth = 3, nrounds = nrounds[i],
+                        eta = eta[j], verbose = FALSE,
+                        objective = "binary:hinge")
+    xgb.test <- predict(xgb.model, newdata = as.matrix(test.set[,-ncol(test.set)]))
+    xgb.test.result <- ifelse(xgb.test > .5, 1, 0)
+    cfm <- confusionMatrix(as.factor(xgb.test.result), 
+                       as.factor(test.set$label),
+                       positive = "1")
+    xgb.recall.test[i, j] <- cfm$byClass[1]
+  }
+}
+summary(xgb.test)
+xgb.recall.test
+```
+
+```{r}
+
+```
+
+
